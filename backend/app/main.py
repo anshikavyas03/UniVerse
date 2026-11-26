@@ -18,6 +18,7 @@ from .services.rag.parsing import DocumentParseError
 from .services.rag.service import UniversityKnowledgeService
 from .services.voice.factory import build_speech_to_text_provider, build_text_to_speech_provider
 from .services.voice.providers import VoiceProviderError
+from .services.voice.speech_text import to_spoken_text
 
 app = FastAPI(title="AI University Digital Human API", version="0.2.0")
 app.add_middleware(CORSMiddleware, allow_origins=[settings.frontend_origin], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
@@ -118,8 +119,11 @@ async def transcribe_audio(file: UploadFile = File(...), language: str = Form(de
 async def synthesize_speech(request: SpeechRequest) -> Response:
     if text_to_speech is None:
         raise HTTPException(status_code=503, detail="Text-to-speech is not configured.")
+    spoken_text = to_spoken_text(request.text, request.language)
+    if not spoken_text:
+        raise HTTPException(status_code=422, detail="There is no speakable text in this request.")
     try:
-        audio = await text_to_speech.synthesize(request.text, request.language)
+        audio = await text_to_speech.synthesize(spoken_text, request.language)
     except VoiceProviderError as error:
         raise HTTPException(status_code=503, detail=str(error)) from error
     return Response(content=audio, media_type="audio/wav", headers={"Content-Disposition": "inline; filename=university-response.wav"})

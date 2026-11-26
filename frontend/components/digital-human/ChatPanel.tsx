@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useRef, useState } from "react";
+import { toSpokenText } from "./speechText";
 import type { AvatarState, ChatMessage, Language, Source } from "./types";
 
 const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
@@ -33,19 +34,6 @@ function AnswerContent({ content }: { content: string }) {
       return <p key={index}>{inline(line)}</p>;
     })}
   </div>;
-}
-
-function speechText(content: string) {
-  return content
-    .replace(/\\([*_])/g, "$1")
-    .replace(/\*\*([^*]+)\*\*/g, "$1")
-    .replace(/__([^_]+)__/g, "$1")
-    .replace(/^#{1,3}\s+/gm, "")
-    .replace(/^[*-]\s+/gm, "")
-    .replace(/\s+[*-]\s+(?=[A-Za-z0-9₹])/g, ". ")
-    .replace(/\[(.*?)\]\([^)]*\)/g, "$1")
-    .replace(/\s+/g, " ")
-    .trim();
 }
 
 export function ChatPanel({ language, onStateChange }: Props) {
@@ -94,7 +82,7 @@ export function ChatPanel({ language, onStateChange }: Props) {
   }
 
   async function speak(answer: string, answerLanguage: Language) {
-    const plainAnswer = speechText(answer);
+    const plainAnswer = toSpokenText(answer, answerLanguage);
     if (answerLanguage === "hi" && speakNativeHindi(plainAnswer)) return;
     await playServerSpeech(plainAnswer, answerLanguage);
   }
