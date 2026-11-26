@@ -22,8 +22,17 @@ function useBlink(active: boolean) {
     const schedule = () => {
       timer = window.setTimeout(() => {
         setClosed(true);
-        timer = window.setTimeout(() => { setClosed(false); schedule(); }, 130);
-      }, 2400 + Math.random() * 3200);
+        timer = window.setTimeout(() => {
+          setClosed(false);
+          // A rare double blink keeps the idle portrait from feeling looped.
+          if (Math.random() < 0.18) {
+            timer = window.setTimeout(() => {
+              setClosed(true);
+              timer = window.setTimeout(() => { setClosed(false); schedule(); }, 115);
+            }, 150);
+          } else schedule();
+        }, 115 + Math.random() * 55);
+      }, 2200 + Math.random() * 3600);
     };
     schedule();
     return () => { window.clearTimeout(timer); setClosed(false); };
@@ -44,15 +53,18 @@ type Props = {
   state: AvatarState;
   language: Language;
   mouth: MouthShape;
+  caption: string;
   micLevel: number;
   muted: boolean;
   showGreet: boolean;
   onGreet: () => void;
-  onStop: () => void;
+  paused: boolean;
+  onPause: () => void;
+  onResume: () => void;
   onToggleMute: () => void;
 };
 
-export function AvatarStage({ state, language, mouth, micLevel, muted, showGreet, onGreet, onStop, onToggleMute }: Props) {
+export function AvatarStage({ state, language, mouth, caption, micLevel, muted, showGreet, onGreet, paused, onPause, onResume, onToggleMute }: Props) {
   // The listening and thinking portraits are separate poses; the others share the front-facing one.
   const pose = state === "listening" || state === "thinking" ? state : "front";
   const blink = useBlink(pose === "front");
@@ -63,7 +75,7 @@ export function AvatarStage({ state, language, mouth, micLevel, muted, showGreet
     <img key={name} className={`overlay ${visible ? "visible" : ""}`} src={`/avatars/${name}.webp`} alt="" style={box} />;
 
   return (
-    <section className={`avatar-stage avatar-${state}`} aria-label="Aanya, your university guide">
+    <section className={`avatar-stage avatar-${state} ${paused ? "avatar-paused" : ""}`} aria-label="Aanya, your university guide">
       <div className="portrait-frame">
         <div className="portrait-canvas">
           {portrait("university-guide-v1", pose === "front", "Aanya, an AI university guide")}
@@ -78,11 +90,12 @@ export function AvatarStage({ state, language, mouth, micLevel, muted, showGreet
       {showGreet ? <button type="button" className="greet-button" onClick={onGreet}>{language === "hi" ? "आन्या को नमस्ते कहें" : "Say hello to Aanya"}</button> : null}
       <div className="avatar-copy">
         <p className="avatar-name">Aanya <span>· Your university guide</span></p>
-        <p className="avatar-status" role="status"><span className="status-dot" />{copy[language][state]}</p>
+        <p className="avatar-status" role="status"><span className="status-dot" />{paused ? (language === "hi" ? "रुका हुआ…" : "Paused…") : copy[language][state]}</p>
         {state === "listening" ? <div className="mic-meter" aria-hidden="true"><i style={{ transform: `scaleX(${Math.max(0.04, micLevel)})` }} /></div> : null}
       </div>
+      {caption && (state === "speaking" || paused) ? <p className="live-caption" aria-live="polite">{caption}</p> : null}
       <div className="session-controls">
-        {state === "speaking" ? <button type="button" onClick={onStop}>{language === "hi" ? "रोकें" : "Stop"}</button> : null}
+        {state === "speaking" ? <button type="button" onClick={paused ? onResume : onPause}>{paused ? (language === "hi" ? "फिर चलाएँ" : "Resume") : (language === "hi" ? "रोकें" : "Pause")}</button> : null}
         <button type="button" onClick={onToggleMute} aria-pressed={muted}>{muted ? (language === "hi" ? "आवाज़ बंद" : "Voice off") : (language === "hi" ? "आवाज़ चालू" : "Voice on")}</button>
       </div>
       <div className="speaking-bars" aria-hidden="true">{[0, 1, 2, 3, 4].map((bar) => <i key={bar} />)}</div>

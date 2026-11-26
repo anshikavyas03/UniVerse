@@ -33,7 +33,7 @@ export function DigitalHuman() {
   // Derived from what is really happening, so the avatar can never get stuck in a state.
   const state: AvatarState = recorder.status === "recording" ? "listening"
     : chat.sending || recorder.status === "transcribing" || voice.phase === "preparing" ? "thinking"
-    : voice.phase === "speaking" ? "speaking"
+    : voice.phase === "speaking" || voice.phase === "paused" ? "speaking"
     : chat.failed || recorder.problem ? "error"
     : greeted || chat.messages.length ? "idle" : "welcome";
 
@@ -80,9 +80,10 @@ export function DigitalHuman() {
       {warning ? <p className="service-warning" role="alert">{warning}</p> : null}
       <div className="stage-layout">
         <AvatarStage
-          state={state} language={language} mouth={voice.mouth} micLevel={recorder.level} muted={voice.muted}
+          state={state} language={language} mouth={voice.mouth} caption={voice.caption} micLevel={recorder.level} muted={voice.muted}
           showGreet={!greeted && !chat.messages.length}
-          onGreet={() => say(greeting, language)} onStop={voice.stop} onToggleMute={() => { voice.unlock(); voice.toggleMuted(); }}
+          onGreet={() => say(greeting, language)} paused={voice.phase === "paused"}
+          onPause={voice.pause} onResume={voice.resume} onToggleMute={() => { voice.unlock(); voice.toggleMuted(); }}
         />
         <ChatPanel
           language={language} greeting={greeting} messages={chat.messages} sending={chat.sending} draft={draft}

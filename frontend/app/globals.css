@@ -23,13 +23,15 @@ footer { text-align:center; color:#71808c; font-size:9px; letter-spacing:1.4px; 
 .avatar-stage { position:relative; isolation:isolate; overflow:hidden; min-height:0; border-radius:22px; background:#101b2a; box-shadow:0 20px 45px rgba(20,52,74,.14); }
 .portrait-frame { position:absolute; inset:0; container-type:size; overflow:hidden; }
 /* A 2:3 canvas that covers the frame, so the face overlays stay exactly on the portrait. */
-.portrait-canvas { --w:max(100cqw, 66.667cqh); position:absolute; width:var(--w); height:calc(var(--w) * 1.5); left:calc((100cqw - var(--w)) / 2); top:calc((100cqh - var(--w) * 1.5) * .22); transform-origin:50% 40%; animation:breathe 6s ease-in-out infinite; }
+.portrait-canvas { --w:max(100cqw, 66.667cqh); position:absolute; width:var(--w); height:calc(var(--w) * 1.5); left:calc((100cqw - var(--w)) / 2); top:calc((100cqh - var(--w) * 1.5) * .22); transform-origin:50% 40%; animation:idle-life 8s ease-in-out infinite; }
 .portrait { object-fit:cover; opacity:0; transition:opacity .22s ease; }
 .portrait.visible { opacity:1; }
 .overlay { position:absolute; opacity:0; pointer-events:none; }
 .overlay.visible { opacity:1; }
 .avatar-speaking .portrait-canvas { animation:talking 3.2s ease-in-out infinite; }
+.avatar-paused .portrait-canvas,.avatar-paused .speaking-bars i { animation-play-state:paused; }
 .avatar-listening .portrait-canvas { animation:lean .5s ease-out forwards; }
+.avatar-thinking .portrait-canvas { animation:thinking-glance 2.8s ease-in-out infinite; }
 .avatar-shade { position:absolute; inset:0; pointer-events:none; background:linear-gradient(180deg,rgba(6,20,36,.28),transparent 25%,transparent 58%,rgba(4,17,28,.86)); border-radius:inherit; border:3px solid transparent; transition:border-color .25s; }
 .avatar-listening .avatar-shade { border-color:#34c1bc; }
 .avatar-thinking .avatar-shade { border-color:#d9a537; }
@@ -42,6 +44,7 @@ footer { text-align:center; color:#71808c; font-size:9px; letter-spacing:1.4px; 
 .avatar-copy { position:absolute; left:22px; right:22px; bottom:62px; color:#fff; }
 .avatar-name { margin:0 0 5px; font-size:19px; font-weight:700; } .avatar-name span { color:rgba(255,255,255,.75); font-size:12px; font-weight:400; }
 .avatar-status { display:flex; align-items:center; gap:8px; margin:0; font-size:13px; }
+.live-caption { position:absolute; right:22px; bottom:104px; max-width:72%; margin:0; padding:7px 10px; border-radius:8px; background:rgba(5,18,30,.72); color:#fff; font-size:12px; line-height:1.35; text-align:right; }
 .status-dot { flex:none; width:8px; height:8px; border-radius:50%; background:#4fc98f; }
 .avatar-listening .status-dot { background:#34c1bc; animation:pulse 1s infinite; }
 .avatar-thinking .status-dot { background:#e3ad3c; animation:pulse .7s infinite; }
@@ -99,9 +102,10 @@ footer { text-align:center; color:#71808c; font-size:9px; letter-spacing:1.4px; 
 .send { background:var(--blue); color:#fff; font-size:22px; }
 .composer-note { margin:8px 0 0; color:#71808c; font-size:10.5px; text-align:center; }
 
-@keyframes breathe { 50% { transform:translateY(-2px) scale(1.008); } }
+@keyframes idle-life { 0%,100% { transform:translate(0,0) rotate(0) scale(1); } 30% { transform:translate(.8px,-2px) rotate(.12deg) scale(1.009); } 70% { transform:translate(-.9px,-1px) rotate(-.14deg) scale(1.006); } }
 @keyframes talking { 25% { transform:translate(1px,-2px) rotate(.25deg) scale(1.012); } 70% { transform:translate(-1px,0) rotate(-.2deg) scale(1.008); } }
 @keyframes lean { to { transform:scale(1.025); } }
+@keyframes thinking-glance { 0%,100% { transform:translate(0,0) rotate(0) scale(1.008); } 42% { transform:translate(-5px,-2px) rotate(-.35deg) scale(1.014); } 66% { transform:translate(-3px,-2px) rotate(-.22deg) scale(1.012); } }
 @keyframes pulse { 50% { opacity:.25; } }
 @keyframes ring { 50% { box-shadow:0 0 0 6px rgba(201,84,75,.22); } }
 @keyframes voice { to { height:19px; } }

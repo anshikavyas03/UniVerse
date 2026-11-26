@@ -34,6 +34,16 @@ class UniversityKnowledgeService:
 
     async def retrieve(self, query: str) -> RetrievalResult:
         try:
+            # Short fee-table rows are easier to find by their exact words than
+            # by semantic similarity. Prefer them for fee and room-type queries.
+            if needs_fee_document(query) and hasattr(self.repository, "search_by_keywords"):
+                keyword_matches = await self.repository.search_by_keywords(query)
+                fee_keyword_matches = [
+                    match for match in keyword_matches
+                    if "fee" in f"{match.title} {match.category}".lower()
+                ]
+                if fee_keyword_matches:
+                    return _result(fee_keyword_matches)
             vector = (await self.embeddings.embed([query]))[0]
             _ensure_dimensions([vector])
             if needs_fee_document(query) and hasattr(self.repository, "search_titled"):
@@ -42,13 +52,6 @@ class UniversityKnowledgeService:
                     return _result(fee_matches)
                 # Fee and hostel tables often contain short rows that semantic search
                 # ranks lower than explanatory prose. Prefer their exact document text.
-                keyword_matches = await self.repository.search_by_keywords(query)
-                fee_keyword_matches = [
-                    match for match in keyword_matches
-                    if "fee" in f"{match.title} {match.category}".lower()
-                ]
-                if fee_keyword_matches:
-                    return _result(fee_keyword_matches)
             matches = await self.repository.search(vector)
         except LLMProviderError:
             matches = await self.repository.search_by_keywords(query)

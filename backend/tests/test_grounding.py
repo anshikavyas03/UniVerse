@@ -84,6 +84,27 @@ class GroundingTests(unittest.IsolatedAsyncioTestCase):
         await conversation.respond("and second year?", "en", first.conversation_id)
         self.assertIn("B.Tech CSE fee", knowledge.queries[-1])
 
+    async def test_broad_hostel_question_asks_for_room_type_before_calling_model(self):
+        model, knowledge = Model(), Knowledge()
+        response = await engine(model, knowledge).respond("What are the hostel charges?", "en", None)
+        self.assertIn("room type", response.message)
+        self.assertEqual(model.calls, [])
+        self.assertEqual(response.suggestions, ["1-seater room", "2-seater room", "4-seater room", "6-seater room"])
+
+    async def test_selected_room_is_answered_from_the_verified_fee_row(self):
+        class RoomKnowledge:
+            async def retrieve(self, query):
+                return RetrievalResult(
+                    context="2 Seater AC Room (Shared Accommodation) 215,000 20,000",
+                    sources=[Source(title="Fee Structure", page=1, category="Fees")],
+                )
+
+        model = Model()
+        response = await engine(model, RoomKnowledge()).respond("2 seater shared", "en", None)
+        self.assertIn("INR 215,000", response.message)
+        self.assertIn("INR 20,000", response.message)
+        self.assertEqual(model.calls, [])
+
     async def test_unrelated_short_question_does_not_inherit_the_topic(self):
         knowledge = Knowledge()
         conversation = engine(Model(), knowledge)

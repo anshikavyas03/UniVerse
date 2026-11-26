@@ -17,16 +17,18 @@ NOT_FOUND = "NOT_FOUND"
 _FOLLOW_UP_HINT = re.compile(r"\b(?:year|semester|sem|seater|ac|b\.?tech|cse|mba|bca|mca|it|that|this|they|those|one|single|double|first|second|third|fourth)\b|वर्ष|साल|सेमेस्टर|सीटर", re.IGNORECASE)
 _FOLLOW_UP_START = re.compile(r"^(?:and|what about|how about|also|aur|और)\b", re.IGNORECASE)
 _REFUSAL = re.compile(r"could not find|couldn.t find|no verified|not (?:mentioned|provided|available|specified|included)|does not (?:mention|contain|provide|include|specify)|जानकारी (?:नहीं|उपलब्ध नहीं)", re.IGNORECASE)
+_ROOM_TYPE = re.compile(r"\b(?:[1-6][\s-]*seater|single|double)\b|[1-6]\s*सीटर", re.IGNORECASE)
+_ROOM_SELECTION = re.compile(r"\b([1-6])[\s-]*seater\b|([1-6])\s*सीटर", re.IGNORECASE)
 
 SUGGESTIONS = {
     "en": {
-        "hostel": ["What are the shared room charges?", "Is the hostel security refundable?", "What is the B.Tech CSE fee?"],
+        "hostel": ["1-seater room", "2-seater room", "4-seater room", "6-seater room"],
         "fees": ["Are there any one-time fees?", "What is the last date to pay fees?", "What are the hostel charges?"],
         "admissions": ["What is the eligibility for B.Tech?", "How do I apply?", "What is the B.Tech CSE fee?"],
         "general": ["What are the hostel charges?", "What is the B.Tech CSE fee?", "Tell me about admissions"],
     },
     "hi": {
-        "hostel": ["साझा कमरे का शुल्क क्या है?", "क्या हॉस्टल सिक्योरिटी वापस मिलती है?", "B.Tech CSE की फीस क्या है?"],
+        "hostel": ["1 सीटर कमरा", "2 सीटर कमरा", "4 सीटर कमरा", "6 सीटर कमरा"],
         "fees": ["क्या कोई एक बार का शुल्क है?", "फीस भरने की अंतिम तारीख क्या है?", "हॉस्टल शुल्क क्या है?"],
         "admissions": ["B.Tech के लिए पात्रता क्या है?", "आवेदन कैसे करें?", "B.Tech CSE की फीस क्या है?"],
         "general": ["हॉस्टल शुल्क क्या है?", "B.Tech CSE की फीस क्या है?", "प्रवेश के बारे में बताइए"],
@@ -98,6 +100,33 @@ def _search_query(message: str, history: list[PromptMessage]) -> str:
     return message
 
 
+def _broad_hostel_prompt(message: str, language: str) -> str | None:
+    """Ask for a room choice before pricing a broad hostel request."""
+    if topic_of(message) != "hostel" or _ROOM_TYPE.search(message):
+        return None
+    if language == "hi":
+        return "ज़रूर। हॉस्टल शुल्क कमरे के प्रकार पर निर्भर करता है। आप 1, 2, 4 या 6 सीटर AC कमरे में से किसके बारे में जानना चाहेंगे?"
+    return "I can help with that. Hostel charges depend on the room type. Are you considering a 1-, 2-, 4-, or 6-seater AC room?"
+
+
+def _selected_room_answer(message: str, context: str, language: str) -> str | None:
+    selected = _ROOM_SELECTION.search(message)
+    if not selected:
+        return None
+    seats = selected.group(1) or selected.group(2)
+    row = re.search(
+        rf"{seats}\s+Seater\s+AC\s+Room(?:\s+\(Shared(?:\s+Accommodation\))?)?\s+(\d{{1,3}}(?:,\d{{3}})+)\s+(\d{{1,3}}(?:,\d{{3}})+)",
+        " ".join(context.split()),
+        re.IGNORECASE,
+    )
+    if not row:
+        return None
+    annual, security = row.groups()
+    if language == "hi":
+        return f"{seats} सीटर AC कमरे का वार्षिक शुल्क INR {annual} है। एक बार की वापसी योग्य सिक्योरिटी INR {security} है।"
+    return f"For the {seats}-seater AC room, the annual hostel charge is INR {annual}. The one-time refundable security deposit is INR {security}."
+
+
 class ConversationEngine:
     def __init__(self, provider: LLMProvider, repository: InMemoryConversationRepository, knowledge: UniversityKnowledgeService | None = None) -> None:
         self.provider = provider
@@ -159,6 +188,15 @@ class ConversationEngine:
                 return reply(_failure_reply("database_unavailable", detected), error="database_unavailable")
             if not retrieval.sources:
                 return reply(_missing_document_reply(query, detected), topic=topic)
+
+        hostel_prompt = _broad_hostel_prompt(query, detected)
+        if hostel_prompt:
+            return reply(hostel_prompt, sources=retrieval.sources if retrieval else [], topic="hostel")
+
+        if retrieval:
+            room_answer = _selected_room_answer(query, retrieval.context, detected)
+            if room_answer:
+                return reply(room_answer, sources=retrieval.sources, follow_up="Would you like to compare another room type?" if detected == "en" else "क्या आप किसी दूसरे कमरे के प्रकार की तुलना करना चाहेंगे?", topic="hostel")
 
         try:
             answer = (await self.provider.generate(self._prompt(history, message, detected, retrieval))).strip()
