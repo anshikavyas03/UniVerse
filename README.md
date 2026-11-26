@@ -63,6 +63,14 @@ PIPER_HINDI_MODEL=/absolute/path/to/hindi-voice.onnx
 
 For a higher-quality local demo on macOS, set `TTS_PROVIDER=macos`. The default configuration uses the installed Indian voices `Tara` (English) and `Lekha` (Hindi); Piper remains the portable option for other platforms and deployment.
 
+## Demo experience
+
+- Click **Say hello to Aanya** to start. Browsers only allow sound after a click.
+- Server speech (`/api/voice/speech`) drives lip sync from the audio. If it fails, the browser's own voice is used with approximate mouth movement.
+- With the operating system's "reduce motion" setting on, the face stays still and a steady speaking indicator is shown.
+- The mouth and blink overlays are generated from the existing portraits by `scripts/build_avatar_frames.py`.
+- University answers need matching document text. If the database or model is unavailable, the assistant says so and does not guess.
+
 ## Structure
 
 ```text

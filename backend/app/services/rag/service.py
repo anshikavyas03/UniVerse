@@ -7,6 +7,7 @@ from ..ai.providers import LLMProviderError
 from .chunking import TextChunk, chunk_pages
 from .embeddings import OllamaEmbeddingProvider
 from .parsing import DocumentParseError, extract_pages
+from .topics import needs_fee_document, words_of
 
 
 @dataclass(frozen=True)
@@ -35,9 +36,24 @@ class UniversityKnowledgeService:
         try:
             vector = (await self.embeddings.embed([query]))[0]
             _ensure_dimensions([vector])
+            if needs_fee_document(query) and hasattr(self.repository, "search_titled"):
+                fee_matches = [match for match in await self.repository.search_titled(vector, "fee") if match.similarity >= 0.45]
+                if fee_matches:
+                    return _result(fee_matches)
+                # Fee and hostel tables often contain short rows that semantic search
+                # ranks lower than explanatory prose. Prefer their exact document text.
+                keyword_matches = await self.repository.search_by_keywords(query)
+                fee_keyword_matches = [
+                    match for match in keyword_matches
+                    if "fee" in f"{match.title} {match.category}".lower()
+                ]
+                if fee_keyword_matches:
+                    return _result(fee_keyword_matches)
             matches = await self.repository.search(vector)
         except LLMProviderError:
             matches = await self.repository.search_by_keywords(query)
+            if needs_fee_document(query):
+                matches = [match for match in matches if "fee" in f"{match.title} {match.category}".lower()] or matches
         verified = [match for match in matches if match.similarity >= self.threshold]
         if not verified:
             verified = _keyword_fallback(query, matches)
@@ -47,12 +63,15 @@ class UniversityKnowledgeService:
             match for match in matches
             if match.similarity >= self.threshold or (match.title in verified_titles and match.similarity >= related_floor)
         ]
-        sources = _deduplicate_sources(context_matches)
-        context = "\n\n".join(f"[Source {index + 1}: {match.title}, page {match.page_number or 'unknown'}]\n{match.content}" for index, match in enumerate(context_matches))
-        return RetrievalResult(context=context, sources=sources)
+        return _result(context_matches)
 
     async def list_documents(self) -> list[StoredDocument]:
         return await self.repository.list_documents()
+
+
+def _result(matches: list[RetrievedChunk]) -> RetrievalResult:
+    context = "\n\n".join(f"[Source {index + 1}: {match.title}, page {match.page_number or 'unknown'}]\n{match.content}" for index, match in enumerate(matches))
+    return RetrievalResult(context=context, sources=_deduplicate_sources(matches))
 
 
 def _deduplicate_sources(matches: list[RetrievedChunk]) -> list[Source]:
@@ -68,7 +87,7 @@ def _deduplicate_sources(matches: list[RetrievedChunk]) -> list[Source]:
 
 def _keyword_fallback(query: str, matches: list[RetrievedChunk]) -> list[RetrievedChunk]:
     """Keep a clearly matching fee or accommodation chunk when embeddings score it narrowly below the cutoff."""
-    query_words = set(query.lower().replace("-", " ").split())
+    query_words = words_of(query)
     topic_words = query_words & {"fee", "fees", "charges", "hostel", "hostels", "room", "rooms", "accommodation", "tuition"}
     if not topic_words:
         return []

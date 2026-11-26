@@ -1,13 +1,6 @@
 export type AvatarState = "welcome" | "idle" | "listening" | "thinking" | "speaking" | "error";
 export type Language = "en" | "hi";
-
-export type ChatMessage = {
-  id: string;
-  role: "user" | "assistant";
-  content: string;
-  verified?: boolean;
-  sources?: Source[];
-};
+export type MouthShape = 0 | 1 | 2 | 3;
 
 export type Source = {
   title: string;
@@ -15,3 +8,15 @@ export type Source = {
   category?: string | null;
 };
 
+export type ChatMessage = {
+  id: string;
+  role: "user" | "assistant" | "notice";
+  content: string;
+  language: Language;
+  verified?: boolean;
+  sources?: Source[];
+  followUp?: string | null;
+  suggestions?: string[];
+  failed?: boolean;
+  retryQuery?: string;
+};

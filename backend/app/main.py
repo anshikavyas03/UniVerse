@@ -1,6 +1,8 @@
+import asyncio
 import json
 
 import asyncpg
+import httpx
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -21,7 +23,7 @@ from .services.voice.providers import VoiceProviderError
 from .services.voice.speech_text import to_spoken_text
 
 app = FastAPI(title="AI University Digital Human API", version="0.2.0")
-app.add_middleware(CORSMiddleware, allow_origins=[settings.frontend_origin], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
+app.add_middleware(CORSMiddleware, allow_origins=sorted({settings.frontend_origin, settings.frontend_origin.replace("//localhost", "//127.0.0.1")}), allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
 try:
     knowledge = UniversityKnowledgeService(settings)
@@ -39,9 +41,35 @@ except VoiceProviderError:
     text_to_speech = None
 
 
+async def _database_status() -> tuple[str, int | None]:
+    try:
+        connection = await asyncpg.connect(settings.database_url, timeout=2)
+        try:
+            return "ok", await connection.fetchval("SELECT COUNT(*) FROM documents")
+        finally:
+            await connection.close()
+    except (OSError, ValueError, asyncpg.PostgresError, asyncpg.InterfaceError):
+        return "unavailable", None
+
+
+async def _model_status() -> str:
+    if settings.llm_provider == "gemini":
+        return "ok" if settings.gemini_api_key else "not_configured"
+    if settings.llm_provider == "openrouter":
+        return "ok" if settings.openrouter_api_key else "not_configured"
+    try:
+        async with httpx.AsyncClient(timeout=2) as client:
+            response = await client.get(f"{settings.ollama_base_url.rstrip('/')}/api/tags")
+        return "ok" if response.is_success else "unavailable"
+    except httpx.HTTPError:
+        return "unavailable"
+
+
 @app.get("/health")
-def health() -> dict[str, str | None]:
-    return {"status": "degraded" if startup_error else "ok", "phase": "conversation", "provider": settings.llm_provider, "error": startup_error}
+async def health() -> dict[str, str | int | None]:
+    (database, documents), model = await asyncio.gather(_database_status(), _model_status())
+    healthy = not startup_error and database == "ok" and model == "ok"
+    return {"status": "ok" if healthy else "degraded", "phase": "conversation", "provider": settings.llm_provider, "model": model, "database": database, "documents": documents, "error": startup_error}
 
 
 def get_engine() -> ConversationEngine:
@@ -86,7 +114,7 @@ async def upload_document(
         stored, chunk_count = await get_engine().knowledge.ingest(file.filename, content, {"title": title, "category": category, "department": department, "academic_year": academic_year, "version": version})
     except (DocumentParseError, LLMProviderError) as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
-    except asyncpg.PostgresError as error:
+    except (OSError, asyncpg.PostgresError, asyncpg.InterfaceError) as error:
         raise HTTPException(status_code=503, detail="The university knowledge database is unavailable.") from error
     return DocumentResponse(**stored.__dict__, chunks_created=chunk_count)
 
@@ -95,7 +123,7 @@ async def upload_document(
 async def list_documents() -> list[DocumentResponse]:
     try:
         documents = await get_engine().knowledge.list_documents()
-    except asyncpg.PostgresError as error:
+    except (OSError, asyncpg.PostgresError, asyncpg.InterfaceError) as error:
         raise HTTPException(status_code=503, detail="The university knowledge database is unavailable.") from error
     return [DocumentResponse(**document.__dict__) for document in documents]
 

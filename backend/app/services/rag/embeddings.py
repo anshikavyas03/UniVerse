@@ -11,11 +11,14 @@ class OllamaEmbeddingProvider:
         try:
             async with httpx.AsyncClient(timeout=90) as client:
                 response = await client.post(f"{self.base_url}/api/embed", json={"model": self.model, "input": texts})
-        except httpx.RequestError as error:
+        except httpx.HTTPError as error:
             raise LLMProviderError("Ollama embeddings are unavailable. Start Ollama and install the embedding model.") from error
         if response.is_error:
             raise LLMProviderError("Ollama could not create document embeddings. Install the configured embedding model and try again.")
-        embeddings = response.json().get("embeddings")
+        try:
+            embeddings = response.json().get("embeddings")
+        except (ValueError, AttributeError) as error:
+            raise LLMProviderError("Ollama returned invalid document embeddings.") from error
         if not isinstance(embeddings, list) or len(embeddings) != len(texts):
             raise LLMProviderError("Ollama returned invalid document embeddings.")
         return embeddings

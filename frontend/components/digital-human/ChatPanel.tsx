@@ -1,170 +1,102 @@
 "use client";
 
 import { FormEvent, useEffect, useRef, useState } from "react";
-import { toSpokenText } from "./speechText";
-import type { AvatarState, ChatMessage, Language, Source } from "./types";
+import { Markdown } from "./Markdown";
+import type { ChatMessage, Language } from "./types";
 
-const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
-const welcome: Record<Language, string> = {
-  en: "Welcome. I’m your AI university guide. Ask about academics, admissions, campus life, or events.",
-  hi: "नमस्ते। मैं आपका AI विश्वविद्यालय सहायक हूँ। आप अकादमिक, प्रवेश, कैंपस जीवन या कार्यक्रमों के बारे में पूछ सकते हैं।"
-};
-const suggestions: Record<Language, string[]> = {
-  en: ["What are the hostel charges?", "Tell me about admissions", "What is the B.Tech CSE fee?"],
-  hi: ["हॉस्टल शुल्क क्या है?", "प्रवेश के बारे में बताइए", "B.Tech CSE की फीस क्या है?"]
+const copy = {
+  en: { title: "Let’s talk", newChat: "New chat", try: "You could ask", next: "Ask next", retry: "Retry", listen: "Listen", verified: "Verified", placeholder: "Ask your university guide…", listening: "I’m listening… tap the mic to finish", transcribing: "Writing down what you said…", thinking: "Checking the university documents…", slow: "Still working. A local model can take a little while…", note: "University facts come only from your uploaded documents." },
+  hi: { title: "बात करते हैं", newChat: "नई बातचीत", try: "आप पूछ सकते हैं", next: "आगे पूछें", retry: "फिर कोशिश करें", listen: "सुनें", verified: "सत्यापित", placeholder: "विश्वविद्यालय के बारे में पूछें…", listening: "मैं सुन रही हूँ… रोकने के लिए माइक दबाएँ", transcribing: "आपकी बात लिखी जा रही है…", thinking: "विश्वविद्यालय के दस्तावेज़ देख रही हूँ…", slow: "अभी काम जारी है। लोकल मॉडल को थोड़ा समय लग सकता है…", note: "विश्वविद्यालय की जानकारी केवल अपलोड किए गए दस्तावेज़ों से आती है।" },
 };
 
-type Props = { language: Language; onStateChange: (state: AvatarState) => void };
-type ChatApiResponse = { conversation_id: string; message: string; language: Language; verified: boolean; sources: Source[] };
+export const starterQuestions: Record<Language, string[]> = {
+  en: ["What are the hostel charges?", "What is the B.Tech CSE fee?", "Tell me about admissions"],
+  hi: ["हॉस्टल शुल्क क्या है?", "B.Tech CSE की फीस क्या है?", "प्रवेश के बारे में बताइए"],
+};
 
-function inline(text: string) {
-  return text.replace(/\\([*_])/g, "$1").split(/(\*\*[^*]+\*\*)/g).map((part, index) => part.startsWith("**") && part.endsWith("**") ? <strong key={index}>{part.slice(2, -2)}</strong> : part);
-}
-
-function AnswerContent({ content }: { content: string }) {
-  const normalized = content
-    .replace(/\\([*_])/g, "$1")
-    .replace(/\*{2,}\s*•\s*\*{2,}/g, "•")
-    .replace(/\s+([*-])\s+(?=\*\*)/g, "\n$1 ");
-  const lines = normalized.split(/\n+/).map((line) => line.trim()).filter(Boolean);
-  return <div className="answer-content">
-    {lines.map((line, index) => {
-      if (/^#{1,3}\s+/.test(line)) return <h3 key={index}>{inline(line.replace(/^#{1,3}\s+/, ""))}</h3>;
-      if (/^[*-]\s+/.test(line)) return <div className="answer-bullet" key={index}><i>•</i><span>{inline(line.replace(/^[*-]\s+/, ""))}</span></div>;
-      return <p key={index}>{inline(line)}</p>;
-    })}
+function Thinking({ language }: { language: Language }) {
+  const [slow, setSlow] = useState(false);
+  useEffect(() => {
+    const timer = window.setTimeout(() => setSlow(true), 8000);
+    return () => window.clearTimeout(timer);
+  }, []);
+  return <div className="message assistant thinking-bubble" role="status">
+    <span className="dots" aria-hidden="true"><i /><i /><i /></span>{slow ? copy[language].slow : copy[language].thinking}
   </div>;
 }
 
-export function ChatPanel({ language, onStateChange }: Props) {
-  const [text, setText] = useState("");
-  const [messages, setMessages] = useState<ChatMessage[]>([{ id: "welcome", role: "assistant", content: welcome[language] }]);
-  const [conversationId, setConversationId] = useState<string>();
-  const [recording, setRecording] = useState(false);
-  const [isSending, setIsSending] = useState(false);
-  const recorder = useRef<MediaRecorder | null>(null);
-  const stream = useRef<MediaStream | null>(null);
-  const chunks = useRef<Blob[]>([]);
-  const audio = useRef<HTMLAudioElement | null>(null);
+type Props = {
+  language: Language;
+  greeting: string;
+  messages: ChatMessage[];
+  sending: boolean;
+  draft: string;
+  recording: "off" | "starting" | "recording" | "transcribing";
+  notice: string | null;
+  onDraft: (value: string) => void;
+  onSend: (query: string, retryOf?: string) => void;
+  onMic: () => void;
+  onReplay: (message: ChatMessage) => void;
+  onNewChat: () => void;
+};
 
-  useEffect(() => () => {
-    stream.current?.getTracks().forEach((track) => track.stop());
-    audio.current?.pause();
-  }, []);
+export function ChatPanel({ language, greeting, messages, sending, draft, recording, notice, onDraft, onSend, onMic, onReplay, onNewChat }: Props) {
+  const words = copy[language];
+  const history = useRef<HTMLDivElement>(null);
+  const last = messages.at(-1);
 
-  function speakNativeHindi(answer: string) {
-    if (!("speechSynthesis" in window)) return false;
-    const voice = window.speechSynthesis.getVoices().find((candidate) => candidate.lang.toLowerCase().startsWith("hi"));
-    if (!voice) return false;
-    const utterance = new SpeechSynthesisUtterance(answer);
-    utterance.lang = "hi-IN";
-    utterance.voice = voice;
-    utterance.rate = 0.92;
-    utterance.onend = () => onStateChange("idle");
-    utterance.onerror = () => void playServerSpeech(answer, "hi");
-    window.speechSynthesis.cancel();
-    window.speechSynthesis.speak(utterance);
-    onStateChange("speaking");
-    return true;
-  }
-
-  async function playServerSpeech(answer: string, answerLanguage: Language) {
-    try {
-      const response = await fetch(`${apiUrl}/api/voice/speech`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: answer, language: answerLanguage }) });
-      if (!response.ok) return onStateChange("idle");
-      const url = URL.createObjectURL(await response.blob());
-      audio.current = new Audio(url);
-      audio.current.onended = () => { URL.revokeObjectURL(url); onStateChange("idle"); };
-      audio.current.onerror = () => { URL.revokeObjectURL(url); onStateChange("idle"); };
-      onStateChange("speaking");
-      await audio.current.play();
-    } catch { onStateChange("idle"); }
-  }
-
-  async function speak(answer: string, answerLanguage: Language) {
-    const plainAnswer = toSpokenText(answer, answerLanguage);
-    if (answerLanguage === "hi" && speakNativeHindi(plainAnswer)) return;
-    await playServerSpeech(plainAnswer, answerLanguage);
-  }
-
-  async function send(query: string) {
-    if (isSending) return;
-    setIsSending(true);
-    setMessages((current) => [...current, { id: crypto.randomUUID(), role: "user", content: query }]);
-    onStateChange("thinking");
-    try {
-      const response = await fetch(`${apiUrl}/api/chat`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ message: query, language, conversation_id: conversationId }) });
-      if (!response.ok) throw new Error("Chat request failed");
-      const reply: ChatApiResponse = await response.json();
-      setConversationId(reply.conversation_id);
-      setMessages((current) => [...current, { id: crypto.randomUUID(), role: "assistant", content: reply.message, verified: reply.verified, sources: reply.sources }]);
-      void speak(reply.message, reply.language);
-    } catch {
-      setMessages((current) => [...current, { id: crypto.randomUUID(), role: "assistant", content: language === "hi" ? "अभी उत्तर प्राप्त नहीं हो सका। कृपया फिर कोशिश करें।" : "I couldn’t reach the university assistant just now. Please try again." }]);
-      onStateChange("error");
-    } finally {
-      setIsSending(false);
-    }
-  }
+  // Show the start of a new answer (not its end), so long answers read from the top.
+  useEffect(() => {
+    const box = history.current;
+    if (!box) return;
+    const latest = box.querySelector<HTMLElement>("[data-latest]");
+    const top = !latest ? 0 : last?.role === "assistant" && !sending ? latest.offsetTop - 12 : box.scrollHeight;
+    const calm = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    box.scrollTo({ top, behavior: calm ? "auto" : "smooth" });
+  }, [last?.id, last?.role, sending]);
 
   function submit(event: FormEvent) {
     event.preventDefault();
-    const query = text.trim();
-    if (!query) return;
-    setText("");
-    void send(query);
+    if (!sending && draft.trim()) onSend(draft);
   }
 
-  async function toggleRecording() {
-    if (recording) return recorder.current?.stop();
-    try {
-      stream.current = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mediaRecorder = new MediaRecorder(stream.current);
-      chunks.current = [];
-      mediaRecorder.ondataavailable = (event) => chunks.current.push(event.data);
-      mediaRecorder.onstop = () => void transcribe(new Blob(chunks.current, { type: mediaRecorder.mimeType || "audio/webm" }));
-      recorder.current = mediaRecorder;
-      mediaRecorder.start();
-      setRecording(true);
-      onStateChange("listening");
-    } catch { onStateChange("error"); }
-  }
-
-  async function transcribe(recordingBlob: Blob) {
-    setRecording(false);
-    stream.current?.getTracks().forEach((track) => track.stop());
-    onStateChange("thinking");
-    const form = new FormData();
-    form.append("file", recordingBlob, "question.webm");
-    form.append("language", language);
-    try {
-      const response = await fetch(`${apiUrl}/api/voice/transcriptions`, { method: "POST", body: form });
-      if (!response.ok) throw new Error("Transcription request failed");
-      const result: { text: string } = await response.json();
-      setText(result.text);
-      onStateChange("idle");
-    } catch { onStateChange("error"); }
-  }
+  const chips = !messages.length ? starterQuestions[language] : last?.role === "assistant" ? last.suggestions ?? [] : [];
 
   return (
     <section className="chat-panel" aria-label="Conversation">
       <div className="chat-panel-header">
-        <div><span className="eyebrow">YOUR CONVERSATION</span><h2>How can I help?</h2></div>
-        <span className="availability"><i /> Verified mode</span>
+        <div><span className="eyebrow">YOUR CONVERSATION</span><h2>{words.title}</h2></div>
+        <button type="button" className="new-chat" onClick={onNewChat} disabled={!messages.length}>{words.newChat}</button>
       </div>
-      <div className="chat-history" aria-live="polite">
-        {messages.map((message) => <article className={`message ${message.role}`} key={message.id}>
-          {message.role === "assistant" ? <AnswerContent content={message.content} /> : message.content}
-          {message.verified && message.sources?.length ? <div className="source-row"><span className="verified-badge">✓ Verified</span>{message.sources.map((source) => <span className="source-chip" key={`${source.title}-${source.page}`}>{source.title}{source.page ? ` · p.${source.page}` : ""}</span>)}</div> : null}
+      <div className="chat-history" ref={history} role="log" aria-live="polite" tabIndex={0}>
+        <article className="message assistant"><p>{greeting}</p></article>
+        {messages.map((message) => <article className={`message ${message.role} ${message.failed ? "failed" : ""}`} key={message.id} lang={message.language} data-latest={message === last ? true : undefined}>
+          {message.role === "assistant" ? <Markdown content={message.content} /> : message.content}
+          {message.followUp ? <p className="follow-up">{message.followUp}</p> : null}
+          {message.verified && message.sources?.length ? <div className="source-row">
+            <span className="verified-badge">✓ {words.verified}</span>
+            {message.sources.map((source) => <span className="source-chip" key={`${source.title}-${source.page}`}>{source.title}{source.page ? ` · p.${source.page}` : ""}</span>)}
+          </div> : null}
+          {message.role === "assistant" ? <div className="message-actions">
+            {message.retryQuery && message === last ? <button type="button" onClick={() => onSend(message.retryQuery!, message.id)} disabled={sending}>↻ {words.retry}</button> : null}
+            {!message.failed ? <button type="button" onClick={() => onReplay(message)}>▶ {words.listen}</button> : null}
+          </div> : null}
         </article>)}
-        {messages.length === 1 ? <div className="suggestion-area"><p>Try asking</p><div>{suggestions[language].map((suggestion) => <button type="button" key={suggestion} onClick={() => void send(suggestion)}>{suggestion}<span>↗</span></button>)}</div></div> : null}
+        {sending ? <Thinking language={language} /> : null}
+        {!sending && chips.length ? <div className="suggestion-area">
+          <p>{messages.length ? words.next : words.try}</p>
+          <div>{chips.map((chip) => <button type="button" key={chip} onClick={() => onSend(chip)}>{chip}<span aria-hidden="true">↗</span></button>)}</div>
+        </div> : null}
       </div>
+      {notice ? <p className="composer-error" role="alert">{notice}</p> : null}
       <form className="composer" onSubmit={submit}>
-        <button type="button" className={`mic ${recording ? "recording" : ""}`} onClick={() => void toggleRecording()} aria-label={recording ? "Stop voice input" : "Start voice input"} aria-pressed={recording}>⌁</button>
-        <input disabled={isSending} value={text} onChange={(event) => setText(event.target.value)} placeholder={recording ? (language === "hi" ? "मैं सुन रही हूँ…" : "I’m listening…") : language === "hi" ? "विश्वविद्यालय के बारे में पूछें…" : "Ask your university guide…"} aria-label="Your question" />
-        <button className="send" disabled={isSending} aria-label="Send question">{isSending ? "…" : "↑"}</button>
+        <button type="button" className={`mic ${recording === "recording" ? "recording" : ""}`} onClick={onMic} disabled={sending || recording === "starting" || recording === "transcribing"} aria-label={recording === "recording" ? "Stop voice input" : "Start voice input"} aria-pressed={recording === "recording"}>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3" /><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21" /></svg>
+        </button>
+        <input value={draft} maxLength={1000} onChange={(event) => onDraft(event.target.value)} placeholder={recording === "recording" ? words.listening : recording === "transcribing" ? words.transcribing : words.placeholder} aria-label="Your question" />
+        <button className="send" disabled={sending || !draft.trim()} aria-label="Send question">↑</button>
       </form>
-      <p className="composer-note">Answers are grounded in your uploaded university documents.</p>
+      <p className="composer-note">{words.note}</p>
     </section>
   );
 }
