@@ -47,6 +47,47 @@ class ConversationEngineTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.sources[0].title, "Campus Guide")
         self.assertEqual(result.sources[0].page, 3)
 
+    async def test_missing_admissions_document_has_a_plain_helpful_reply(self):
+        class EmptyKnowledge:
+            async def retrieve(self, query):
+                return type("Result", (), {"context": "", "sources": []})()
+
+        engine = ConversationEngine(FakeProvider(), InMemoryConversationRepository(), knowledge=EmptyKnowledge())
+        response = await engine.respond("Tell me about admissions", "en", None)
+        self.assertIn("admissions information", response.message)
+        self.assertNotIn("*", response.message)
+
+    async def test_fee_keyword_fallback_keeps_relevant_hostel_chunk(self):
+        class FakeEmbeddings:
+            async def embed(self, texts):
+                return [[0.0] * 768 for _ in texts]
+
+        class FakeRepository:
+            async def search(self, embedding):
+                return [RetrievedChunk(content="Hostel charges: 2 seater shared room is INR 215,000.", title="Fee Structure", category="Fees", page_number=1, similarity=0.52)]
+
+        result = await UniversityKnowledgeService(settings, repository=FakeRepository(), embeddings=FakeEmbeddings()).retrieve("What are the hostel charges?")
+        self.assertIn("Hostel charges", result.context)
+        self.assertEqual(result.sources[0].title, "Fee Structure")
+
+    async def test_database_keyword_search_is_used_when_embeddings_are_down(self):
+        class BrokenEmbeddings:
+            async def embed(self, texts):
+                from app.services.ai.providers import LLMProviderError
+                raise LLMProviderError("Ollama is unavailable")
+
+        class FakeRepository:
+            async def search(self, embedding):
+                raise AssertionError("Semantic search should not run when embeddings fail")
+
+            async def search_by_keywords(self, query):
+                self.query = query
+                return [RetrievedChunk(content="Hostel charges are listed here.", title="Fee Structure", category="Fees", page_number=1, similarity=1.0)]
+
+        result = await UniversityKnowledgeService(settings, repository=FakeRepository(), embeddings=BrokenEmbeddings()).retrieve("What are the hostel charges?")
+        self.assertIn("Hostel charges", result.context)
+        self.assertEqual(result.sources[0].title, "Fee Structure")
+
 
 if __name__ == "__main__":
     unittest.main()

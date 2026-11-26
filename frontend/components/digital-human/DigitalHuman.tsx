@@ -5,30 +5,26 @@ import { AvatarStage } from "./AvatarStage";
 import { ChatPanel } from "./ChatPanel";
 import type { AvatarState, Language } from "./types";
 
-const actions = ["Academics", "Admissions", "Campus", "Events"];
-
 export function DigitalHuman() {
   const [language, setLanguage] = useState<Language>("en");
   const [avatarState, setAvatarState] = useState<AvatarState>("welcome");
 
   return (
-    <main className="experience-shell">
-      <header>
+    <main className="experience-shell live-experience">
+      <header className="session-header">
         <a className="brand" href="#top" aria-label="University Digital Human home"><span className="brand-mark">U</span><span>UNIVERSITY<br /><b>DIGITAL HUMAN</b></span></a>
+        <div className="session-label"><span className="live-dot" /> PRIVATE STUDENT SESSION</div>
         <div className="language-toggle" aria-label="Choose language">
           <button className={language === "en" ? "active" : ""} onClick={() => setLanguage("en")}>EN</button>
           <button className={language === "hi" ? "active" : ""} onClick={() => setLanguage("hi")}>हिन्दी</button>
         </div>
       </header>
-      <div className="stage-layout" id="top">
+      <div className="session-heading" id="top"><div><p className="eyebrow">UNIVERSITY DIGITAL HUMAN</p><h1>Talk to your guide.</h1></div><p>Ask naturally. I will answer from verified university documents and ask when I need more detail.</p></div>
+      <div className="stage-layout live-layout">
         <AvatarStage state={avatarState} />
         <ChatPanel language={language} onStateChange={setAvatarState} />
       </div>
-      <nav className="quick-actions" aria-label="Quick topics">
-        {actions.map((action) => <button key={action} onClick={() => setAvatarState("thinking")}><span>→</span>{action}</button>)}
-      </nav>
-      <footer>AI UNIVERSITY ASSISTANT <span>•</span> VERIFIED INFORMATION COMING IN PHASE 3</footer>
+      <footer>AI UNIVERSITY ASSISTANT <span>•</span> VERIFIED, PRIVATE & MULTILINGUAL</footer>
     </main>
   );
 }
-

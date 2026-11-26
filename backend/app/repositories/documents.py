@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+import re
 from uuid import UUID
 
 import asyncpg
@@ -71,6 +72,35 @@ class PostgresDocumentRepository:
         finally:
             await connection.close()
 
+    async def search_by_keywords(self, query: str, limit: int = 5) -> list[RetrievedChunk]:
+        """A reliable local fallback when the embedding service is temporarily unavailable."""
+        keywords = _search_keywords(query)
+        if not keywords:
+            return []
+        patterns = [f"%{keyword}%" for keyword in keywords]
+        connection = await asyncpg.connect(self.database_url)
+        try:
+            rows = await connection.fetch(
+                """SELECT c.content, d.title, d.category, c.page_number, 1.0::float AS similarity
+                   FROM document_chunks c JOIN documents d ON d.id = c.document_id
+                   WHERE lower(c.content) LIKE ANY($1::text[])
+                   ORDER BY (
+                       SELECT COUNT(*) FROM unnest($1::text[]) AS pattern
+                       WHERE lower(c.content) LIKE pattern
+                   ) DESC, d.uploaded_at DESC, c.chunk_index ASC
+                   LIMIT $2""",
+                patterns,
+                limit,
+            )
+            return [RetrievedChunk(**dict(row)) for row in rows]
+        finally:
+            await connection.close()
+
 
 def _vector(values: list[float]) -> str:
     return "[" + ",".join(str(value) for value in values) + "]"
+
+
+def _search_keywords(query: str) -> list[str]:
+    stop_words = {"about", "after", "again", "and", "are", "can", "for", "from", "have", "how", "information", "is", "me", "please", "tell", "the", "this", "what", "with", "would", "you"}
+    return list(dict.fromkeys(word for word in re.findall(r"[a-z0-9]+", query.lower()) if len(word) >= 3 and word not in stop_words))

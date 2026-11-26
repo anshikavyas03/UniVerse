@@ -1,7 +1,7 @@
 # AI University Digital Human — Project Handoff
 
 **Last updated:** 22 August 2026  
-**Current status:** Phases 1–3 are implemented and tested. The project is ready for real university document uploads and chat testing. Phase 4 has not started.
+**Current status:** Phases 1–3 are implemented and tested. Phase 4 has started with a local-first voice baseline and frontend lifecycle integration; local media runtimes still require installation and manual end-to-end validation.
 
 ## 1. Project overview and final goal
 
@@ -21,14 +21,14 @@ The project is deliberately being developed in phases so the product remains run
 
 The project is at the end of **Phase 3: Verified university knowledge**.
 
-- The frontend experience shell exists and is considered good enough for now.
+- The frontend is connected to the live chat API and updates avatar states across chat and voice interactions.
 - The FastAPI backend is functional with a locally verified Ollama LLM configuration.
 - PostgreSQL with pgvector is running through Docker.
 - Document ingestion for text-based PDF and TXT files is working.
 - Retrieved university-document chunks are passed to the LLM as verified context.
 - Chat responses expose citations and a `verified` flag.
 - No real university documents have been uploaded by the user yet. This is expected and not an error.
-- The next implementation phase is **Phase 4: Voice and avatar**.
+- Local Whisper transcription and configurable Piper synthesis endpoints are implemented. Install the optional runtimes and voice model before testing them with a microphone.
 
 ## 3. Architecture
 
@@ -508,17 +508,17 @@ These are known current limitations, not blockers for the completed phases:
 6. Verify that the response has `verified: true` and a correct `sources` entry.
 7. Ask a question absent from the uploaded documents. Confirm that the model does not invent a university-specific answer.
 
-### Next implementation phase: Phase 4 — Voice and avatar
+### Current implementation phase: Phase 4 — Voice and avatar
 
 Recommended order:
 
-1. Decide whether voice processing will remain fully local or use a hosted provider.
-2. Implement the voice provider interfaces already scaffolded under `backend/app/services/voice/`.
-3. Add speech-to-text (planned: Whisper) endpoint/service.
-4. Add text-to-speech (planned: Piper) endpoint/service.
-5. Define a stable avatar-provider interface and select an avatar implementation.
-6. Connect frontend avatar states to chat/voice lifecycle states: idle, listening, thinking, speaking, and error.
-7. Add end-to-end tests that cover text input, voice transcription, retrieved answer, speech output, and visual state transitions.
+1. Local-first processing is selected: the optional `faster-whisper` runtime is used for transcription and Piper is used for synthesis.
+2. Voice provider interfaces and factories are implemented under `backend/app/services/voice/`.
+3. `POST /api/voice/transcriptions` accepts a browser audio upload and returns its text.
+4. `POST /api/voice/speech` returns synthesized WAV audio when `PIPER_MODEL` is configured.
+5. The existing CSS digital-human stage remains the selected avatar implementation for this milestone.
+6. The frontend now drives idle, listening, thinking, speaking, and error states from the live chat and media lifecycle.
+7. Remaining work: install/configure local media dependencies and add browser-level end-to-end coverage for a real microphone and speaker.
 
 ### Following phases
 
@@ -563,4 +563,3 @@ Before a teammate begins feature work, they should be able to confirm all of the
 - [ ] `http://localhost:8000/docs` shows the five current endpoints.
 - [ ] `http://localhost:3000` shows the frontend after `npm run dev`.
 - [ ] At least one real, text-based university document has been uploaded and a grounded/cited answer has been manually verified.
-

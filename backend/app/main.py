@@ -4,17 +4,20 @@ import asyncpg
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 
 from .core.config import settings
 from .repositories.conversations import InMemoryConversationRepository
 from .schemas.chat import ChatRequest, ChatResponse
 from .schemas.documents import DocumentResponse
+from .schemas.voice import SpeechRequest, TranscriptionResponse
 from .services.ai.conversation import ConversationEngine
 from .services.ai.factory import build_llm_provider
 from .services.ai.providers import LLMProviderError
 from .services.rag.parsing import DocumentParseError
 from .services.rag.service import UniversityKnowledgeService
+from .services.voice.factory import build_speech_to_text_provider, build_text_to_speech_provider
+from .services.voice.providers import VoiceProviderError
 
 app = FastAPI(title="AI University Digital Human API", version="0.2.0")
 app.add_middleware(CORSMiddleware, allow_origins=[settings.frontend_origin], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
@@ -27,6 +30,12 @@ except ValueError as error:
     startup_error = str(error)
 else:
     startup_error = None
+
+speech_to_text = build_speech_to_text_provider(settings)
+try:
+    text_to_speech = build_text_to_speech_provider(settings)
+except VoiceProviderError:
+    text_to_speech = None
 
 
 @app.get("/health")
@@ -88,3 +97,29 @@ async def list_documents() -> list[DocumentResponse]:
     except asyncpg.PostgresError as error:
         raise HTTPException(status_code=503, detail="The university knowledge database is unavailable.") from error
     return [DocumentResponse(**document.__dict__) for document in documents]
+
+
+@app.post("/api/voice/transcriptions", response_model=TranscriptionResponse)
+async def transcribe_audio(file: UploadFile = File(...), language: str = Form(default="auto")) -> TranscriptionResponse:
+    if language not in {"auto", "en", "hi"}:
+        raise HTTPException(status_code=422, detail="Language must be auto, en, or hi.")
+    audio = await file.read()
+    if len(audio) > 25 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Audio recordings must be 25 MB or smaller.")
+    try:
+        text = await speech_to_text.transcribe(audio, language)
+    except VoiceProviderError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+    detected = "hi" if language == "hi" or any("\u0900" <= char <= "\u097f" for char in text) else "en"
+    return TranscriptionResponse(text=text, language=detected, provider=type(speech_to_text).__name__.removesuffix("Provider"))
+
+
+@app.post("/api/voice/speech")
+async def synthesize_speech(request: SpeechRequest) -> Response:
+    if text_to_speech is None:
+        raise HTTPException(status_code=503, detail="Text-to-speech is not configured.")
+    try:
+        audio = await text_to_speech.synthesize(request.text, request.language)
+    except VoiceProviderError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+    return Response(content=audio, media_type="audio/wav", headers={"Content-Disposition": "inline; filename=university-response.wav"})
